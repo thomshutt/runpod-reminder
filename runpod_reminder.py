@@ -141,7 +141,10 @@ def main() -> None:
 
     now = utc_now()
     pods = list_running_pods(runpod_api_key)
+    if not pods:
+        print("No running pods found.")
 
+    found_over_threshold = False
     for pod in pods:
         started_at = parse_iso8601(pod.get("lastStartedAt"))
         if not started_at:
@@ -149,6 +152,7 @@ def main() -> None:
         runtime = now - started_at
         if runtime < max_age:
             continue
+        found_over_threshold = True
 
         pod_id = pod.get("id")
         if not pod_id:
@@ -163,6 +167,8 @@ def main() -> None:
                 telegram_token, telegram_chat_id, format_pod_alert(pod, runtime)
             )
             alerted[pod_id] = now.isoformat()
+    if pods and not found_over_threshold:
+        print("Running pods found, but none exceed the alert threshold.")
 
     updates = get_telegram_updates(
         telegram_token, (last_update_id + 1) if last_update_id is not None else None
