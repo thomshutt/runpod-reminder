@@ -17,15 +17,38 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def parse_iso8601(ts: Optional[str]) -> Optional[datetime]:
-    if not ts:
+def parse_timestamp(value: Any) -> Optional[datetime]:
+    if value is None:
         return None
-    if ts.endswith("Z"):
-        ts = ts.replace("Z", "+00:00")
+    if isinstance(value, (int, float)):
+        seconds = value / 1000 if value > 10_000_000_000 else value
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        num = int(raw)
+        seconds = num / 1000 if num > 10_000_000_000 else num
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if raw.endswith("Z"):
+        raw = raw.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(ts)
+        return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def get_pod_start_time(pod: Dict[str, Any]) -> Tuple[Optional[datetime], str, Any]:
+    for key in ("lastStartedAt", "startTime", "startedAt", "createdAt"):
+        if key in pod:
+            raw = pod.get(key)
+            parsed = parse_timestamp(raw)
+            if parsed:
+                return parsed, key, raw
+            return None, key, raw
+    return None, "unknown", None
 
 
 def load_cache() -> Dict[str, Any]:
@@ -141,24 +164,40 @@ def main() -> None:
 
     now = utc_now()
     pods = list_running_pods(runpod_api_key)
+    print(f"Found {len(pods)} running pod(s). Now: {now.isoformat()}")
     if not pods:
         print("No running pods found.")
 
     found_over_threshold = False
     for pod in pods:
-        started_at = parse_iso8601(pod.get("lastStartedAt"))
+        started_at, start_key, start_raw = get_pod_start_time(pod)
+        pod_id = pod.get("id") or "unknown"
+        name = pod.get("name") or "unnamed"
+        desired_status = pod.get("desiredStatus") or "unknown"
+        if started_at:
+            runtime = now - started_at
+            runtime_hours = runtime.total_seconds() / 3600
+            print(
+                "Pod: "
+                f"id={pod_id} name={name} status={desired_status} "
+                f"{start_key}={start_raw} runtime_hours={runtime_hours:.2f}"
+            )
+        else:
+            print(
+                "Pod: "
+                f"id={pod_id} name={name} status={desired_status} "
+                f"{start_key}={start_raw} runtime_hours=unknown"
+            )
         if not started_at:
             continue
         runtime = now - started_at
         if runtime < max_age:
             continue
         found_over_threshold = True
-
-        pod_id = pod.get("id")
-        if not pod_id:
+        if pod_id == "unknown":
             continue
 
-        last_alerted_at = parse_iso8601(alerted.get(pod_id))
+        last_alerted_at = parse_timestamp(alerted.get(pod_id))
         if last_alerted_at and now - last_alerted_at < alert_interval:
             continue
 
