@@ -18,26 +18,23 @@ def utc_now() -> datetime:
 
 
 def parse_timestamp(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        seconds = value / 1000 if value > 10_000_000_000 else value
-        return datetime.fromtimestamp(seconds, tz=timezone.utc)
     if not isinstance(value, str):
         return None
     raw = value.strip()
     if not raw:
         return None
-    if raw.isdigit():
-        num = int(raw)
-        seconds = num / 1000 if num > 10_000_000_000 else num
-        return datetime.fromtimestamp(seconds, tz=timezone.utc)
     if raw.endswith("Z"):
         raw = raw.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(raw)
     except ValueError:
-        return None
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f %z %Z", "%Y-%m-%d %H:%M:%S %z %Z"):
+        try:
+            return datetime.strptime(raw, fmt).astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def get_pod_start_time(pod: Dict[str, Any]) -> Tuple[Optional[datetime], str, Any]:
