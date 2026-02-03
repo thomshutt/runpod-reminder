@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,6 +24,10 @@ def parse_timestamp(value: Any) -> Optional[datetime]:
     raw = value.strip()
     if not raw:
         return None
+    if raw.isdigit():
+        num = int(raw)
+        seconds = num / 1000 if num > 10_000_000_000 else num
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
     if raw.endswith("Z"):
         raw = raw.replace("Z", "+00:00")
     try:
@@ -122,23 +127,39 @@ def format_pod_alert(pod: Dict[str, Any], runtime: timedelta) -> str:
     return (
         "Runpod pod running > 2 hours\n"
         f"ID: {pod_id}\n"
+        f"Pod ID: {pod_id}\n"
         f"Name: {name}\n"
         f"Image: {image}\n"
         f"GPU: {gpu}\n"
         f"Last started: {started}\n"
         f"Runtime: {hours:.2f} hours\n\n"
-        f"To terminate: /terminate {pod_id}"
+        f"To terminate: /terminate_{pod_id}"
     )
 
 
 def parse_terminate_command(text: str) -> Optional[str]:
     text = text.strip()
+    if text.startswith("/terminate_"):
+        return text.split("_", 1)[1].strip()
     if text.startswith("/terminate"):
         parts = text.split()
         if len(parts) >= 2:
             return parts[1].strip()
+        return None
     if text.lower().startswith("terminate "):
         return text.split(None, 1)[1].strip()
+    if text.lower() == "terminate":
+        return None
+    return None
+
+
+def extract_pod_id_from_text(text: str) -> Optional[str]:
+    match = re.search(r"\bPod ID:\s*([a-z0-9]+)\b", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    match = re.search(r"\bID:\s*([a-z0-9]+)\b", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
     return None
 
 
@@ -220,6 +241,11 @@ def main() -> None:
         chat_id = str(chat.get("id")) if chat.get("id") is not None else None
 
         pod_id = parse_terminate_command(text)
+        if pod_id is None:
+            reply_to = message.get("reply_to_message") or {}
+            reply_text = reply_to.get("text") or ""
+            if text.strip().lower() in ("/terminate", "terminate"):
+                pod_id = extract_pod_id_from_text(reply_text)
         if not pod_id or not chat_id:
             continue
 
@@ -228,11 +254,11 @@ def main() -> None:
 
         ok, detail = terminate_pod(runpod_api_key, pod_id)
         status = "terminated" if ok else "failed"
-        send_telegram_message(
-            telegram_token,
-            chat_id,
-            f"Termination {status} for pod {pod_id}. {detail}",
-        )
+        if ok:
+            message_text = f"Pod {pod_id} terminated."
+        else:
+            message_text = f"Pod {pod_id} termination failed. {detail}"
+        send_telegram_message(telegram_token, chat_id, message_text)
 
     cache["last_update_id"] = last_update_id
     cache["alerted"] = alerted
