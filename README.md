@@ -1,7 +1,7 @@
 # runpod-reminder
 Telegram bot for reminding me when I've left a Runpod pod running too long.
 
-## What it does
+## Workflow
 - Runs on a 30-minute GitHub Actions schedule.
 - Checks for Runpod pods running longer than 2 hours.
 - Sends a Telegram alert with pod details.
