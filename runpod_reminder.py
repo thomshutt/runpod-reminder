@@ -49,7 +49,7 @@ def get_pod_start_time(pod: Dict[str, Any]) -> Tuple[Optional[datetime], str, An
             parsed = parse_timestamp(raw)
             if parsed:
                 return parsed, key, raw
-            return None, key, raw
+            continue
     return None, "unknown", None
 
 
@@ -125,8 +125,7 @@ def format_pod_alert(pod: Dict[str, Any], runtime: timedelta) -> str:
     gpu = (pod.get("gpu") or {}).get("displayName") or "unknown"
     started = pod.get("lastStartedAt") or "unknown"
     return (
-        "Runpod pod running > 2 hours\n"
-        f"ID: {pod_id}\n"
+        f"Runpod pod running > {hours:.0f} hours\n"
         f"Pod ID: {pod_id}\n"
         f"Name: {name}\n"
         f"Image: {image}\n"
